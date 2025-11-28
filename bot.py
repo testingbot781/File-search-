@@ -1,197 +1,138 @@
 import os
 import asyncio
+from datetime import datetime
 from pyrogram import Client, filters
-from pyrogram.types import Message
 from motor.motor_asyncio import AsyncIOMotorClient
 
-# ---------------------------
-# ENVIRONMENT VARIABLES
-# ---------------------------
-BOT_TOKEN   = os.getenv("BOT_TOKEN")         # Your Bot Token
-API_ID      = int(os.getenv("API_ID"))      # Your API ID
-API_HASH    = os.getenv("API_HASH")         # Your API HASH
-MONGO_URL   = os.getenv("MONGO_URL")        # MongoDB URL
+# ------- STATIC CONFIG (Saved In Code) -------
+OWNER_ID = 1598576202
+LOG_CHANNEL = -1003286415377
+BOT_USERNAME = "@Netflix_webseriesbot"
+BOT_CREDIT = "@technicalserena"
 
-# ---------------------------
-# Pre-configured Settings
-# ---------------------------
-OWNER_ID    = 1598576202                     # Your Telegram ID (Admin)
-LOG_CHANNEL = -1003286415377                 # Log channel ID (where all logs will go)
-SOURCE_CHANNELS = [-1003392099253, -1002222222222] # List of source channel IDs from where bot will fetch files
+# Default source channels (Also editable via /add_channel)
+SOURCE_CHANNELS = [-1003392099253, -1002222222222]
 
-# ---------------------------
-# Pyrogram Client Setup
-# ---------------------------
+# ------- ENV LOADING -------
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+MONGO_DB_URI = os.getenv("MONGO_DB_URI")
+
+# ------- MONGO SETUP -------
+mongo_client = AsyncIOMotorClient(MONGO_DB_URI)
+db = mongo_client["TelegramBotDB"]
+users_col = db["Users"]
+config_col = db["Config"]
+
+# ------- BOT DEFINE -------
 app = Client(
-    "Serena_FileBot",
-    bot_token=BOT_TOKEN,
+    "SerenaRomanticBot",
     api_id=API_ID,
-    api_hash=API_HASH
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN,
 )
 
-# ---------------------------
-# MongoDB Setup
-# ---------------------------
-mongo = AsyncIOMotorClient(MONGO_URL)
-db = mongo["SERENA_FILEBOT"]
-users_col = db["users"]
-ban_col = db["banned"]
+# -------- SAFE 10-SECOND MESSAGE SENDING --------
+async def safe_send(client, chat_id, text):
+    await asyncio.sleep(1)
+    await client.send_message(chat_id, text)
+    await asyncio.sleep(10)
 
-# ---------------------------
-# Log Function
-# ---------------------------
-async def log(text):
-    try:
-        await app.send_message(LOG_CHANNEL, text)
-    except Exception as e:
-        pass
+# -------- LOAD SOURCE CHANNELS FROM DB --------
+async def load_source_channels():
+    global SOURCE_CHANNELS
+    cfg = await config_col.find_one({"_id": "source_channels"})
+    if cfg:
+        SOURCE_CHANNELS = cfg["channels"]
 
-# ---------------------------
-# Ban Check Function
-# ---------------------------
-async def is_banned(uid):
-    return await ban_col.find_one({"user": uid}) is not None
-
-# ---------------------------
-# Send File with 10-second Delay
-# ---------------------------
-async def safe_send_file(msg, user_id):
-    try:
-        await msg.copy(user_id)
-        await asyncio.sleep(10)  # Delay between files
-    except Exception as e:
-        await log(f"Error: {e}")
-
-# ---------------------------
-# Search + Send Function
-# ---------------------------
-async def search_and_send(channel_id, user_id):
-    try:
-        await log(f"Searching in {channel_id} for {user_id}")
-
-        count = 0
-        async for msg in app.search_messages(channel_id, limit=50):
-            if msg.document or msg.video or msg.audio:
-                await safe_send_file(msg, user_id)
-                await safe_send_file(msg, LOG_CHANNEL)  # Save log in LOG channel
-                count += 1
-
-        if count == 0:
-            await app.send_message(user_id, "No matching files found. 😔")
-
-    except Exception as e:
-        await app.send_message(user_id, f"Error: {str(e)}")
-        await log(str(e))
-
-# ---------------------------
-# /alive Command (Bot is Active)
-# ---------------------------
-@app.on_message(filters.command("alive") & filters.user(OWNER_ID))
-async def alive(_, msg):
-    await msg.reply("🟢 Bot is Active! ✓")
-
-# ---------------------------
-# /start Command (Initial message)
-# ---------------------------
-@app.on_message(filters.command("start"))
-async def start(_, msg: Message):
-    if await is_banned(msg.from_user.id):
-        return await msg.reply("⚠️ You are banned from using this bot.")
-
-    await users_col.update_one({"user": msg.from_user.id}, {"$set": {"user": msg.from_user.id}}, upsert=True)
-
-    await msg.reply(
-        "🤖 Hello! I am Serena File Bot.\n"
-        "Send me any channel ID (starting with -100) and I will fetch similar files for you.\n\n"
-        "Bot by: @technicalserena\n\n"
-        "Commands:\n"
-        "/alive - Check if the bot is online\n"
-        "/ban <user_id> - Ban a user\n"
-        "/unban <user_id> - Unban a user\n"
-        "/broadcast <message> - Send a broadcast to all users\n"
-        "/stats - Get bot stats"
+# -------- SAVE SOURCE CHANNELS TO DB --------
+async def save_source_channels():
+    await config_col.update_one(
+        {"_id": "source_channels"},
+        {"$set": {"channels": SOURCE_CHANNELS}},
+        upsert=True
     )
 
-# ---------------------------
-# Handle Channel ID (Fetch Files)
-# ---------------------------
-@app.on_message(filters.text & ~filters.command([]))
-async def handle(_, msg: Message):
-    uid = msg.from_user.id
-    if await is_banned(uid):
-        return await msg.reply("⚠️ You are banned.")
+# -------- START COMMAND --------
+@app.on_message(filters.command("start"))
+async def start_cmd(client, message):
+    user_id = message.from_user.id
 
-    text = msg.text.strip()
+    await safe_send(client, message.chat.id,
+        f"👋 Bot is active and running.\nCredit: {BOT_CREDIT}"
+    )
 
-    if not text.startswith("-100"):
-        return await msg.reply("❌ Invalid channel ID format. Make sure it starts with -100.")
+    await users_col.update_one(
+        {"user_id": user_id},
+        {"$set": {"last_active": datetime.now()}},
+        upsert=True,
+    )
 
-    await msg.reply("🔍 Searching for files…")
-    await search_and_send(int(text), uid)
+    await client.send_message(LOG_CHANNEL, f"🟢 User Started: `{user_id}`")
 
-# ---------------------------
-# Admin: Ban Command
-# ---------------------------
-@app.on_message(filters.command("ban") & filters.user(OWNER_ID))
-async def ban(_, msg):
-    if len(msg.command) < 2:
-        return await msg.reply("⚠️ Usage: /ban <user_id>")
-    uid = int(msg.command[1])
-    await ban_col.insert_one({"user": uid})
-    await msg.reply(f"⚠️ Banned {uid}.")
+# -------- ADD CHANNEL COMMAND (OWNER ONLY) --------
+@app.on_message(filters.command("add_channel") & filters.user(OWNER_ID))
+async def add_channel_cmd(client, message):
+    global SOURCE_CHANNELS
+    try:
+        parts = message.text.split()
+        if len(parts) < 2:
+            return await message.reply("Send Channel ID also.\nExample:\n`/add_channel -1001234567890`")
 
-# ---------------------------
-# Admin: Unban Command
-# ---------------------------
-@app.on_message(filters.command("unban") & filters.user(OWNER_ID))
-async def unban(_, msg):
-    if len(msg.command) < 2:
-        return await msg.reply("⚠️ Usage: /unban <user_id>")
-    uid = int(msg.command[1])
-    await ban_col.delete_one({"user": uid})
-    await msg.reply(f"✅ Unbanned {uid}.")
+        new_channel = int(parts[1])
+        SOURCE_CHANNELS.append(new_channel)
+        await save_source_channels()
 
-# ---------------------------
-# Admin: Broadcast Command
-# ---------------------------
+        await message.reply(f"✔ Channel Added: `{new_channel}`")
+        await client.send_message(LOG_CHANNEL, f"➕ New Source Channel Added: `{new_channel}`")
+
+    except Exception as e:
+        await message.reply(f"Error: {e}")
+
+# -------- FORWARDING LOGIC --------
+@app.on_message(filters.channel)
+async def channel_forward(client, message):
+    global SOURCE_CHANNELS
+
+    if message.chat.id not in SOURCE_CHANNELS:
+        return
+
+    try:
+        await message.copy(LOG_CHANNEL)
+        await safe_send(client, LOG_CHANNEL, "✔ File saved successfully.")
+
+    except Exception as e:
+        await safe_send(client, LOG_CHANNEL, f"❌ Error: {e}")
+
+# -------- BROADCAST (OWNER ONLY) --------
 @app.on_message(filters.command("broadcast") & filters.user(OWNER_ID))
-async def broadcast(_, msg):
-    if len(msg.command) < 2:
-        return await msg.reply("⚠️ Usage: /broadcast <message>")
+async def broadcast(client, message):
+    text = message.text.replace("/broadcast", "").strip()
+    if not text:
+        return await message.reply("Please provide text to send.")
 
-    text = msg.text.split(" ", 1)[1]
-    sent = 0
-
+    count = 0
     async for user in users_col.find({}):
         try:
-            await app.send_message(user["user"], text)
-            sent += 1
-            await asyncio.sleep(0.3)
+            await safe_send(client, user["user_id"], text)
+            count += 1
         except:
             pass
 
-    await msg.reply(f"📣 Broadcast sent to {sent} users.")
+    await message.reply(f"Broadcast sent to {count} users.")
 
-# ---------------------------
-# Admin: Stats Command
-# ---------------------------
-@app.on_message(filters.command("stats") & filters.user(OWNER_ID))
-async def stats(_, msg):
-    users = await users_col.count_documents({})
-    banned = await ban_col.count_documents({})
-    await msg.reply(f"👥 Total Users: {users}\n🚫 Banned Users: {banned}")
+# -------- ALIVE CHECK --------
+@app.on_message(filters.command("alive"))
+async def alive_cmd(client, message):
+    await message.reply("🟢 Bot is running normally.")
 
-# ---------------------------
-# Notify Owner When Bot Starts
-# ---------------------------
-@app.on_ready()
-async def notify_start():
-    try:
-        await app.send_message(OWNER_ID, "🚀 Bot is Active Now! 💥")
-    except:
-        pass
+# -------- BOT RUN --------
+print("Booting bot... loading DB Channels...")
 
-# ---------------------------
-# Run the Bot
-# ---------------------------
+asyncio.get_event_loop().run_until_complete(load_source_channels())
+
+print("Source Channels Loaded:", SOURCE_CHANNELS)
+print("Bot Started Successfully.")
+
 app.run()
