@@ -5,19 +5,19 @@ from pyrogram.types import Message
 from motor.motor_asyncio import AsyncIOMotorClient
 
 # ---------------------------
-# ENVIRONMENT VARIABLES (Render will add these)
+# ENVIRONMENT VARIABLES
 # ---------------------------
-BOT_TOKEN   = os.getenv("BOT_TOKEN")         # Your Bot Token (Render ENV)
-API_ID      = int(os.getenv("API_ID"))      # Your API ID (Render ENV)
-API_HASH    = os.getenv("API_HASH")         # Your API HASH (Render ENV)
-MONGO_URL   = os.getenv("MONGO_URL")        # MongoDB URL (Render ENV)
+BOT_TOKEN   = os.getenv("BOT_TOKEN")         # Your Bot Token
+API_ID      = int(os.getenv("API_ID"))      # Your API ID
+API_HASH    = os.getenv("API_HASH")         # Your API HASH
+MONGO_URL   = os.getenv("MONGO_URL")        # MongoDB URL
 
 # ---------------------------
-# Pre-configured Settings (For your reference)
+# Pre-configured Settings
 # ---------------------------
 OWNER_ID    = 1598576202                     # Your Telegram ID (Admin)
 LOG_CHANNEL = -1003286415377                 # Log channel ID (where all logs will go)
-SOURCE_CHANNELS = [-1003392099253, -1002222222222]  # List of source channel IDs from where bot will fetch files
+SOURCE_CHANNELS = -1003392099253, -1002222222222]  # List of source channel IDs from where bot will fetch files
 
 # ---------------------------
 # Pyrogram Client Setup
@@ -184,7 +184,7 @@ async def stats(_, msg):
 # ---------------------------
 # Notify Owner When Bot Starts
 # ---------------------------
-@app.on_client_start()
+@app.on_ready()
 async def notify_start():
     try:
         await app.send_message(OWNER_ID, "🚀 Bot is Active Now! 💥")
