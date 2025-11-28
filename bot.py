@@ -5,15 +5,15 @@ from pyrogram.types import Message
 from motor.motor_asyncio import AsyncIOMotorClient
 
 # ---------------------------
-# ENVIRONMENT VARIABLES
+# ENVIRONMENT VARIABLES (Render will add these)
 # ---------------------------
-BOT_TOKEN   = os.getenv("BOT_TOKEN")          # Your Bot Token
-API_ID      = int(os.getenv("1598576202"))       # Your API ID
-API_HASH    = os.getenv("API_HASH")          # Your API HASH
-MONGO_URL   = os.getenv("MONGO_URL")         # MongoDB URL
+BOT_TOKEN   = os.getenv("BOT_TOKEN")         # Your Bot Token (Render ENV)
+API_ID      = int(os.getenv("API_ID"))      # Your API ID (Render ENV)
+API_HASH    = os.getenv("API_HASH")         # Your API HASH (Render ENV)
+MONGO_URL   = os.getenv("MONGO_URL")        # MongoDB URL (Render ENV)
 
 # ---------------------------
-# Pre-configured Settings
+# Pre-configured Settings (For your reference)
 # ---------------------------
 OWNER_ID    = 1598576202                     # Your Telegram ID (Admin)
 LOG_CHANNEL = -1003286415377                 # Log channel ID (where all logs will go)
@@ -43,7 +43,7 @@ ban_col = db["banned"]
 async def log(text):
     try:
         await app.send_message(LOG_CHANNEL, text)
-    except:
+    except Exception as e:
         pass
 
 # ---------------------------
@@ -77,7 +77,7 @@ async def search_and_send(channel_id, user_id):
                 count += 1
 
         if count == 0:
-            await app.send_message(user_id, "No matching files found.")
+            await app.send_message(user_id, "No matching files found. 😔")
 
     except Exception as e:
         await app.send_message(user_id, f"Error: {str(e)}")
@@ -88,7 +88,7 @@ async def search_and_send(channel_id, user_id):
 # ---------------------------
 @app.on_message(filters.command("alive") & filters.user(OWNER_ID))
 async def alive(_, msg):
-    await msg.reply("Bot is Active ✓")
+    await msg.reply("🟢 Bot is Active! ✓")
 
 # ---------------------------
 # /start Command (Initial message)
@@ -96,13 +96,20 @@ async def alive(_, msg):
 @app.on_message(filters.command("start"))
 async def start(_, msg: Message):
     if await is_banned(msg.from_user.id):
-        return await msg.reply("You are banned from using this bot.")
+        return await msg.reply("⚠️ You are banned from using this bot.")
 
     await users_col.update_one({"user": msg.from_user.id}, {"$set": {"user": msg.from_user.id}}, upsert=True)
 
     await msg.reply(
+        "🤖 Hello! I am Serena File Bot.\n"
         "Send me any channel ID (starting with -100) and I will fetch similar files for you.\n\n"
-        "Bot by: @technicalserena"
+        "Bot by: @technicalserena\n\n"
+        "Commands:\n"
+        "/alive - Check if the bot is online\n"
+        "/ban <user_id> - Ban a user\n"
+        "/unban <user_id> - Unban a user\n"
+        "/broadcast <message> - Send a broadcast to all users\n"
+        "/stats - Get bot stats"
     )
 
 # ---------------------------
@@ -112,14 +119,14 @@ async def start(_, msg: Message):
 async def handle(_, msg: Message):
     uid = msg.from_user.id
     if await is_banned(uid):
-        return await msg.reply("You are banned.")
+        return await msg.reply("⚠️ You are banned.")
 
     text = msg.text.strip()
 
     if not text.startswith("-100"):
-        return await msg.reply("Invalid channel ID format.")
+        return await msg.reply("❌ Invalid channel ID format. Make sure it starts with -100.")
 
-    await msg.reply("Searching for files…")
+    await msg.reply("🔍 Searching for files…")
     await search_and_send(int(text), uid)
 
 # ---------------------------
@@ -128,10 +135,10 @@ async def handle(_, msg: Message):
 @app.on_message(filters.command("ban") & filters.user(OWNER_ID))
 async def ban(_, msg):
     if len(msg.command) < 2:
-        return await msg.reply("Usage: /ban user_id")
+        return await msg.reply("⚠️ Usage: /ban <user_id>")
     uid = int(msg.command[1])
     await ban_col.insert_one({"user": uid})
-    await msg.reply(f"Banned {uid}")
+    await msg.reply(f"⚠️ Banned {uid}.")
 
 # ---------------------------
 # Admin: Unban Command
@@ -139,10 +146,10 @@ async def ban(_, msg):
 @app.on_message(filters.command("unban") & filters.user(OWNER_ID))
 async def unban(_, msg):
     if len(msg.command) < 2:
-        return await msg.reply("Usage: /unban user_id")
+        return await msg.reply("⚠️ Usage: /unban <user_id>")
     uid = int(msg.command[1])
     await ban_col.delete_one({"user": uid})
-    await msg.reply(f"Unbanned {uid}")
+    await msg.reply(f"✅ Unbanned {uid}.")
 
 # ---------------------------
 # Admin: Broadcast Command
@@ -150,7 +157,7 @@ async def unban(_, msg):
 @app.on_message(filters.command("broadcast") & filters.user(OWNER_ID))
 async def broadcast(_, msg):
     if len(msg.command) < 2:
-        return await msg.reply("Usage: /broadcast text")
+        return await msg.reply("⚠️ Usage: /broadcast <message>")
 
     text = msg.text.split(" ", 1)[1]
     sent = 0
@@ -163,7 +170,7 @@ async def broadcast(_, msg):
         except:
             pass
 
-    await msg.reply(f"Broadcast sent to {sent} users.")
+    await msg.reply(f"📣 Broadcast sent to {sent} users.")
 
 # ---------------------------
 # Admin: Stats Command
@@ -172,7 +179,7 @@ async def broadcast(_, msg):
 async def stats(_, msg):
     users = await users_col.count_documents({})
     banned = await ban_col.count_documents({})
-    await msg.reply(f"Users: {users}\nBanned: {banned}")
+    await msg.reply(f"👥 Total Users: {users}\n🚫 Banned Users: {banned}")
 
 # ---------------------------
 # Notify Owner When Bot Starts
@@ -180,11 +187,11 @@ async def stats(_, msg):
 @app.on_client_start()
 async def notify_start():
     try:
-        await app.send_message(OWNER_ID, "🚀 Bot is Active Now!")
+        await app.send_message(OWNER_ID, "🚀 Bot is Active Now! 💥")
     except:
         pass
 
 # ---------------------------
-# Run Bot
+# Run the Bot
 # ---------------------------
 app.run()
